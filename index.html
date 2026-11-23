@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- popcorn-host v1 (same wrapper pattern as Reel Log) -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Popcorn">
+<meta name="theme-color" content="#fff4dc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#170d0a" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex,nofollow">
+<title>Popcorn Buckets</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+:root{--bg:#fff4dc;--tx:#2a160f;--mu:#7a5d4f;--ac:#e5383b;--fl:rgba(42,22,15,.1)}
+@media(prefers-color-scheme:dark){:root{--bg:#170d0a;--tx:#fff3de;--mu:#c4a797;--ac:#ff5a5d;--fl:rgba(255,243,222,.14)}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,sans-serif;overscroll-behavior:none}
+html,body{height:100%;overflow:hidden}
+#probe{position:fixed;left:0;top:0;width:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+#app{border:0;display:none;background:var(--bg);position:fixed;top:0;left:0;width:100%;height:100%}
+.panel{display:none;position:fixed;inset:0;align-items:center;justify-content:center;padding:24px;background:var(--bg)}
+.card{width:min(100%,340px);text-align:center}
+h1{font-size:32px;letter-spacing:-.5px;margin:0 0 8px}
+p{color:var(--mu);margin:0 0 18px;line-height:1.4;font-size:15px}
+#pm{min-height:2.8em}
+input{display:block;width:100%;padding:12px 14px;border-radius:14px;border:0;background:var(--fl);color:var(--tx);font-family:inherit;font-size:20px;font-weight:600;min-height:50px;text-align:center;letter-spacing:6px;-webkit-appearance:none;appearance:none;outline:0}
+button{margin-top:12px;width:100%;padding:14px;border:0;border-radius:14px;background:var(--ac);color:#fff;font-family:inherit;font-size:17px;font-weight:600}
+button:disabled,input:disabled{opacity:.5}
+ol{text-align:left;color:var(--tx);padding-left:22px;line-height:1.6;font-size:16px;margin:0}
+</style>
+</head>
+<body>
+<div id="probe"></div>
+
+<div class="panel" id="pinp">
+  <form class="card" id="pf" autocomplete="off">
+    <h1>Popcorn</h1>
+    <p id="pm"></p>
+    <input id="pi" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN">
+    <button type="submit" id="pb">Open</button>
+  </form>
+</div>
+
+<div class="panel" id="instp">
+  <div class="card">
+    <h1>Add to Home Screen</h1>
+    <p>Do these in Safari, in this order:</p>
+    <ol>
+      <li>Tap <b>Share</b> (the square with an arrow)</li>
+      <li>Tap <b>Add to Home Screen</b></li>
+      <li>Make sure <b>Open as Web App</b> is on</li>
+      <li>Tap <b>Add</b></li>
+    </ol>
+    <p style="margin-top:18px">Then open Popcorn from your home screen.</p>
+  </div>
+</div>
+
+<iframe id="app" title="Popcorn Buckets" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+
+<script>
+var APP_URL = '';  // paste your Popcorn Buckets Apps Script /exec link between the quotes (the only line you need to edit)
+(function(){
+  var ifr=document.getElementById('app'), pinp=document.getElementById('pinp'), instp=document.getElementById('instp');
+  var pm=document.getElementById('pm'), pi=document.getElementById('pi'), pb=document.getElementById('pb'), pf=document.getElementById('pf');
+  var reserved=0;
+  var MSG={
+    '':'Enter your PIN to open Popcorn Buckets.',
+    PIN_EMPTY:'Enter your PIN to open Popcorn Buckets.',
+    PIN_WRONG:'That PIN did not work. Try again.',
+    PIN_NOT_SET:'No PIN is set yet. In Apps Script, add APP_PIN under Project Settings > Script properties.',
+    PIN_LOCKED:'Too many wrong tries. Try again in about an hour.'
+  };
+  function lsGet(k){try{return localStorage.getItem(k)||''}catch(e){return ''}}
+  function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+  function lsDel(k){try{localStorage.removeItem(k)}catch(e){}}
+  function standalone(){return window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)}
+  function urlOk(){return /^https:\/\/script\.google\.com\/.+\/exec$/.test(APP_URL)}
+  function clamp(n){n=Math.round(parseFloat(n));return isFinite(n)?Math.min(80,Math.max(0,n)):0}
+  function insets(){
+    var cs=getComputedStyle(document.getElementById('probe'));
+    return {st:clamp(cs.paddingTop),sb:clamp(cs.paddingBottom)};
+  }
+  /* Full-screen layout. In a home screen app innerHeight can be shorter than screen.height, which leaves a
+     blank strip and pushes the tab bar up. In portrait standalone we size everything from screen.height. */
+  function fit(){
+    var h=document.documentElement.style,b=document.body.style,f=ifr.style;
+    var portrait=window.innerHeight>=window.innerWidth;
+    if(standalone()&&portrait){
+      var sh=screen.height;
+      h.overflow=b.overflow='visible';
+      h.height=b.height=sh+'px';
+      f.position='absolute';f.top='0';f.left='0';f.width='100%';
+      f.height=(Math.max(window.innerHeight,sh)+reserved)+'px';
+    }else{
+      h.overflow=b.overflow='hidden';
+      h.height=b.height='100%';
+      f.position='fixed';f.top='0';f.left='0';f.width='100%';
+      f.height=reserved?'calc(100% + '+reserved+'px)':'100%';
+    }
+  }
+  function show(which){
+    pinp.style.display=which==='pin'?'flex':'none';
+    instp.style.display=which==='inst'?'flex':'none';
+    ifr.style.display=which==='app'?'block':'none';
+  }
+  function showPin(code){
+    ifr.src='about:blank';
+    show('pin');
+    if(!urlOk()){
+      pm.textContent='The Apps Script link is not set yet. Edit the first line of the script in this page (APP_URL) and paste your /exec link.';
+      pi.disabled=true;pb.disabled=true;return;
+    }
+    pm.textContent=MSG[code]||MSG[''];
+    pi.disabled=(code==='PIN_LOCKED');pb.disabled=pi.disabled;
+    pi.value='';
+  }
+  function load(pin){
+    var n=insets();
+    fit();
+    ifr.src=APP_URL+'?k='+encodeURIComponent(pin)+'&st='+n.st+'&sb='+n.sb;
+    show('app');
+  }
+  pf.addEventListener('submit',function(e){
+    e.preventDefault();
+    var v=String(pi.value||'').replace(/[^A-Za-z0-9]/g,'').slice(0,40);
+    if(!v)return;
+    lsSet('pb_host_pin',v);
+    load(v);
+  });
+  addEventListener('resize',fit);
+  addEventListener('orientationchange',function(){reserved=0;fit();setTimeout(fit,300)});
+  function hostOk(origin){
+    var h='';try{h=new URL(origin).hostname}catch(e){return false}
+    return ['googleusercontent.com','google.com'].some(function(d){return h===d||h.slice(-(d.length+1))==='.'+d});
+  }
+  addEventListener('message',function(ev){
+    var d=ev.data;
+    if(!d||typeof d!=='object'||!hostOk(ev.origin))return;
+    if(d.type==='pb-pin'){
+      lsDel('pb_host_pin');
+      showPin(String(d.code||''));
+    }else if(d.type==='pb-size'&&typeof d.h==='number'){
+      var ifh=Math.round(ifr.getBoundingClientRect().height);
+      var short=ifh-reserved-Math.round(d.h);
+      if(short>=3&&short<=80&&reserved+short<=120){reserved+=short;fit()}
+    }
+  });
+
+  var install=/(^|[?&])install(=|&|$)/.test(location.search);
+  var isApp=standalone();
+  if(install||location.search){try{history.replaceState(null,'',location.pathname)}catch(e){}}
+  if(install&&!isApp){fit();show('inst');return}
+  var saved=lsGet('pb_host_pin');
+  if(urlOk()&&saved){load(saved)}else{fit();showPin('')}
+})();
+</script>
+</body>
+</html>
